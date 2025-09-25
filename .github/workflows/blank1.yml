@@ -68,15 +68,7 @@ jobs:
           }
           EOF
 
-      - name: Preprocess markdown files
-        run: |
-          find . -name "*.md" -type f -exec sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' {} \;
-          find . -name "*.md" -type f -exec sed -i 's/{% hint %}/> **INFO:** /g' {} \;
-          find . -name "*.md" -type f -exec sed -i 's/{% endhint %}/\n/g' {} \;
-          find . -name "*.md" -type f -exec sed -i 's/{%[^%]*%}//g' {} \;
-          find . -name "*.md" -type f -exec sed -i 's/{{[^}]*}}//g' {} \;
-
-      - name: Auto-generate icon frontmatter and inject mapped Font Awesome icons
+      - name: Preprocess markdown files (hints, embeds, icons)
         run: |
           declare -A icon_map=(
             [camcorder]="video"
@@ -94,9 +86,21 @@ jobs:
             [filter]="sliders"
             [bars]="bars"
             [header]="heading"
+            [id-card-clip]="id-card-clip"
+            [layer-minus]="layer-group"
           )
 
           find . -type f -name "*.md" | while read -r file; do
+            # Replace hint blocks
+            sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
+            sed -i 's/{% hint %}/> **INFO:** /g' "$file"
+            sed -i 's/{% endhint %}/\n/g' "$file"
+            sed -i 's/{%[^%]*%}//g' "$file"
+            sed -i 's/{{[^}]*}}//g' "$file"
+
+            # Convert {% embed url="..." %} to iframe
+            sed -i -E 's/{% embed url="([^"]+)" %}/<iframe width="560" height="315" src="\1" frameborder="0" allowfullscreen><\/iframe>/g' "$file"
+
             # Ensure frontmatter exists
             if ! grep -q '^---' "$file"; then
               icon=$(basename "$file" | sed 's/\.md$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
@@ -104,44 +108,36 @@ jobs:
               echo "Added frontmatter with icon: $icon to $file"
             fi
 
-            # Extract and map icon
+            # Inject icon inline into first heading
             raw_icon=$(grep -m1 '^icon:' "$file" | awk -F': ' '{print $2}')
             mapped_icon=${icon_map[$raw_icon]:-$raw_icon}
 
-            # Inject Font Awesome icon with layout wrapper
-            if [ -n "$mapped_icon" ] && ! grep -q "fa-solid fa-$mapped_icon" "$file"; then
-              awk -v icn="$mapped_icon" '
-                BEGIN {in_yaml=0}
-                /^---/ {
-                  if(in_yaml==1){
-                    print $0
-                    print "<div class=\"icon-block\">\n<i class=\"fa-solid fa-" icn "\"></i>\n</div>\n"
-                  }
-                  in_yaml = !in_yaml
-                  next
-                }
-                {print}
-              ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-              echo "Injected mapped icon $mapped_icon into $file"
+            if [ -n "$mapped_icon" ]; then
+              sed -i "0,/^# /s/^# /# <i class=\"fa-solid fa-$mapped_icon\"></i> /" "$file"
+              sed -i "0,/^## /s/^## /## <i class=\"fa-solid fa-$mapped_icon\"></i> /" "$file"
+              echo "Injected inline icon $mapped_icon into $file"
             fi
           done
 
-      - name: Add Font Awesome, layout styles, and search bar
+      - name: Add Font Awesome and layout styles
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
           @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
 
-          .icon-block {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 12px;
+          .markdown-section h1 i,
+          .markdown-section h2 i,
+          .markdown-section h3 i {
+            margin-right: 8px;
+            font-size: 1em;
+            vertical-align: middle;
+            color: #555;
           }
 
-          .icon-block i {
-            font-size: 1.2em;
-            color: #333;
+          iframe {
+            display: block;
+            margin: 20px auto;
+            max-width: 100%;
           }
 
           .markdown-section blockquote {
@@ -159,19 +155,7 @@ jobs:
           .markdown-section blockquote p:last-child {
             margin-bottom: 0;
           }
-
-          #search-box {
-            margin: 20px 0;
-            padding: 8px;
-            width: 100%;
-            max-width: 400px;
-            font-size: 16px;
-          }
           EOF
-
-          echo '<input type="text" id="search-box" placeholder="Search docs...">' >> README.md
-          echo '<script src="https://cdnjs.cloudflare.com/ajax/libs/lunr.js/2.3.9/lunr.min.js"></script>' >> README.md
-          echo '<script>/* Lunr search logic can be added here */</script>' >> README.md
 
       - name: Build GitBook
         run: |
