@@ -95,11 +95,19 @@ jobs:
             sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
             sed -i 's/{% hint %}/> **INFO:** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
-            sed -i 's/{%[^%]*%}//g' "$file"
             sed -i 's/{{[^}]*}}//g' "$file"
 
-            # Convert {% embed url="..." %} to iframe
-            sed -i -E 's/{% embed url="([^"]+)" %}/<iframe width="560" height="315" src="\1" frameborder="0" allowfullscreen><\/iframe>/g' "$file"
+            # Convert {% embed url="..." %} to iframe using awk
+            awk '
+              {
+                if ($0 ~ /{% embed url="[^"]+" %}/) {
+                  match($0, /{% embed url="([^"]+)" %}/, arr)
+                  print "<iframe width=\"560\" height=\"315\" src=\"" arr[1] "\" frameborder=\"0\" allowfullscreen></iframe>"
+                } else {
+                  print $0
+                }
+              }
+            ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
 
             # Ensure frontmatter exists
             if ! grep -q '^---' "$file"; then
