@@ -86,12 +86,26 @@ jobs:
             fi
           done
 
-      - name: Inject Font Awesome icons
+      - name: Map and inject Font Awesome icons
         run: |
+          declare -A icon_map=(
+            [camcorder]="video"
+            [terminal]="terminal"
+            [rocket]="rocket"
+            [settings]="cog"
+            [book]="book"
+            [api]="code"
+            [code]="file-code"
+            [image]="image"
+            [video]="video"
+          )
+
           find . -type f -name "*.md" | while read -r file; do
-            icon=$(grep -m1 '^icon:' "$file" | awk -F': ' '{print $2}')
-            if [ -n "$icon" ] && ! grep -q "fa-solid fa-$icon" "$file"; then
-              awk -v icn="$icon" '
+            raw_icon=$(grep -m1 '^icon:' "$file" | awk -F': ' '{print $2}')
+            mapped_icon=${icon_map[$raw_icon]:-$raw_icon}
+
+            if [ -n "$mapped_icon" ] && ! grep -q "fa-solid fa-$mapped_icon" "$file"; then
+              awk -v icn="$mapped_icon" '
                 BEGIN {in_yaml=0}
                 /^---/ {
                   if(in_yaml==1){
@@ -103,7 +117,7 @@ jobs:
                 }
                 {print}
               ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-              echo "Injected icon $icon into $file"
+              echo "Injected mapped icon $mapped_icon into $file"
             fi
           done
 
