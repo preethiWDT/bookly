@@ -169,7 +169,6 @@ jobs:
           }
           EOF
 
-          # Add search bar to README.md
           echo '<input type="text" id="search-box" placeholder="Search docs...">' >> README.md
           echo '<script src="https://cdnjs.cloudflare.com/ajax/libs/lunr.js/2.3.9/lunr.min.js"></script>' >> README.md
           echo '<script>/* Lunr search logic can be added here */</script>' >> README.md
@@ -184,3 +183,4 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_book
+          force_orphan: true
