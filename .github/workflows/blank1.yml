@@ -47,7 +47,7 @@ jobs:
             done
           fi
 
-      - name: Create book.json with icon plugins
+      - name: Create book.json with styles and plugins
         run: |
           cat << 'EOF' > book.json
           {
@@ -92,6 +92,8 @@ jobs:
             [search]="magnifying-glass"
             [wishlist]="heart"
             [filter]="sliders"
+            [bars]="bars"
+            [header]="heading"
           )
 
           find . -type f -name "*.md" | while read -r file; do
@@ -106,14 +108,14 @@ jobs:
             raw_icon=$(grep -m1 '^icon:' "$file" | awk -F': ' '{print $2}')
             mapped_icon=${icon_map[$raw_icon]:-$raw_icon}
 
-            # Inject Font Awesome icon after frontmatter
+            # Inject Font Awesome icon with layout wrapper
             if [ -n "$mapped_icon" ] && ! grep -q "fa-solid fa-$mapped_icon" "$file"; then
               awk -v icn="$mapped_icon" '
                 BEGIN {in_yaml=0}
                 /^---/ {
                   if(in_yaml==1){
                     print $0
-                    print "<i class=\"fa-solid fa-" icn "\"></i>\n"
+                    print "<div class=\"icon-block\">\n<i class=\"fa-solid fa-" icn "\"></i>\n</div>\n"
                   }
                   in_yaml = !in_yaml
                   next
@@ -124,18 +126,22 @@ jobs:
             fi
           done
 
-      - name: Add Font Awesome and custom styles
+      - name: Add Font Awesome, layout styles, and search bar
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
           @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
 
-          .markdown-section h1:before,
-          .markdown-section h2:before,
-          .markdown-section h3:before {
-            font-family: "Font Awesome 6 Free";
-            font-weight: 900;
-            margin-right: 8px;
+          .icon-block {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+          }
+
+          .icon-block i {
+            font-size: 1.2em;
+            color: #333;
           }
 
           .markdown-section blockquote {
@@ -153,7 +159,20 @@ jobs:
           .markdown-section blockquote p:last-child {
             margin-bottom: 0;
           }
+
+          #search-box {
+            margin: 20px 0;
+            padding: 8px;
+            width: 100%;
+            max-width: 400px;
+            font-size: 16px;
+          }
           EOF
+
+          # Add search bar to README.md
+          echo '<input type="text" id="search-box" placeholder="Search docs...">' >> README.md
+          echo '<script src="https://cdnjs.cloudflare.com/ajax/libs/lunr.js/2.3.9/lunr.min.js"></script>' >> README.md
+          echo '<script>/* Lunr search logic can be added here */</script>' >> README.md
 
       - name: Build GitBook
         run: |
