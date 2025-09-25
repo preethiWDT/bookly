@@ -1,0 +1,150 @@
+name: Build and Deploy GitBook
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '10'
+
+      - name: Install GitBook
+        run: |
+          npm install -g gitbook-cli
+          gitbook fetch 3.2.2
+
+      - name: Validate and create missing files
+        run: |
+          if [ ! -f "SUMMARY.md" ]; then
+            echo "# Summary" > SUMMARY.md
+            echo "" >> SUMMARY.md
+            for file in *.md; do
+              if [ "$file" != "README.md" ] && [ "$file" != "SUMMARY.md" ]; then
+                title=$(echo "$file" | sed 's/\.md$//' | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
+                echo "* [$title]($file)" >> SUMMARY.md
+              fi
+            done
+          fi
+
+          if [ -f "SUMMARY.md" ]; then
+            grep -o '\[.*\](.*\.md)' SUMMARY.md | sed 's/.*(\(.*\.md\)).*/\1/' | while read file; do
+              if [ ! -f "$file" ]; then
+                echo "Creating missing file: $file"
+                title=$(echo "$file" | sed 's/\.md$//' | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
+                echo "# $title" > "$file"
+                echo "" >> "$file"
+                echo "This page is under construction." >> "$file"
+              fi
+            done
+          fi
+
+      - name: Create book.json with icon plugins
+        run: |
+          cat << 'EOF' > book.json
+          {
+            "title": "Your Documentation",
+            "plugins": [
+              "-search",
+              "fontsettings",
+              "theme-default"
+            ],
+            "pluginsConfig": {
+              "fontsettings": {
+                "theme": "white"
+              }
+            },
+            "styles": {
+              "website": "styles/website.css"
+            }
+          }
+          EOF
+
+      - name: Preprocess markdown files
+        run: |
+          find . -name "*.md" -type f -exec sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' {} \;
+          find . -name "*.md" -type f -exec sed -i 's/{% hint %}/> **INFO:** /g' {} \;
+          find . -name "*.md" -type f -exec sed -i 's/{% endhint %}/\n/g' {} \;
+          find . -name "*.md" -type f -exec sed -i 's/{%[^%]*%}//g' {} \;
+          find . -name "*.md" -type f -exec sed -i 's/{{[^}]*}}//g' {} \;
+
+      - name: Auto-generate icon frontmatter
+        run: |
+          find . -type f -name "*.md" | while read -r file; do
+            if ! grep -q '^icon:' "$file"; then
+              icon=$(basename "$file" | sed 's/\.md$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
+              sed -i "1s/^/---\nicon: $icon\n---\n\n/" "$file"
+              echo "Added icon: $icon to $file"
+            fi
+          done
+
+      - name: Inject Font Awesome icons
+        run: |
+          find . -type f -name "*.md" | while read -r file; do
+            icon=$(grep -m1 '^icon:' "$file" | awk -F': ' '{print $2}')
+            if [ -n "$icon" ] && ! grep -q "fa-solid fa-$icon" "$file"; then
+              awk -v icn="$icon" '
+                BEGIN {in_yaml=0}
+                /^---/ {
+                  if(in_yaml==1){
+                    print $0
+                    print "<i class=\"fa-solid fa-" icn "\"></i>\n"
+                  }
+                  in_yaml = !in_yaml
+                  next
+                }
+                {print}
+              ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+              echo "Injected icon $icon into $file"
+            fi
+          done
+
+      - name: Add Font Awesome and custom styles
+        run: |
+          mkdir -p styles
+          cat << 'EOF' > styles/website.css
+          @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
+
+          .markdown-section h1:before,
+          .markdown-section h2:before,
+          .markdown-section h3:before {
+            font-family: "Font Awesome 6 Free";
+            font-weight: 900;
+            margin-right: 8px;
+          }
+
+          .markdown-section blockquote {
+            border-left: 4px solid #007acc;
+            background: #f8f9fa;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 4px;
+          }
+
+          .markdown-section blockquote p:first-child {
+            margin-top: 0;
+          }
+
+          .markdown-section blockquote p:last-child {
+            margin-bottom: 0;
+          }
+          EOF
+
+      - name: Build GitBook
+        run: |
+          gitbook install --verbose
+          gitbook build --verbose
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_book
