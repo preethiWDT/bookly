@@ -47,7 +47,7 @@ jobs:
             done
           fi
 
-      - name: Create book.json with icon plugins
+      - name: Create book.json with styles and plugins
         run: |
           cat << 'EOF' > book.json
           {
@@ -68,25 +68,7 @@ jobs:
           }
           EOF
 
-      - name: Preprocess markdown files
-        run: |
-          find . -name "*.md" -type f -exec sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' {} \;
-          find . -name "*.md" -type f -exec sed -i 's/{% hint %}/> **INFO:** /g' {} \;
-          find . -name "*.md" -type f -exec sed -i 's/{% endhint %}/\n/g' {} \;
-          find . -name "*.md" -type f -exec sed -i 's/{%[^%]*%}//g' {} \;
-          find . -name "*.md" -type f -exec sed -i 's/{{[^}]*}}//g' {} \;
-
-      - name: Auto-generate icon frontmatter
-        run: |
-          find . -type f -name "*.md" | while read -r file; do
-            if ! grep -q '^icon:' "$file"; then
-              icon=$(basename "$file" | sed 's/\.md$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
-              sed -i "1s/^/---\nicon: $icon\n---\n\n/" "$file"
-              echo "Added icon: $icon to $file"
-            fi
-          done
-
-      - name: Map and inject Font Awesome icons
+      - name: Preprocess markdown files (hints, embeds, icons, sidebar)
         run: |
           declare -A icon_map=(
             [camcorder]="video"
@@ -98,41 +80,99 @@ jobs:
             [code]="file-code"
             [image]="image"
             [video]="video"
+            [cart]="shopping-cart"
+            [search]="magnifying-glass"
+            [wishlist]="heart"
+            [filter]="sliders"
+            [bars]="bars"
+            [header]="heading"
+            [id-card-clip]="id-card-clip"
+            [layer-minus]="layer-group"
           )
 
           find . -type f -name "*.md" | while read -r file; do
+            # Replace hint blocks
+            sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
+            sed -i 's/{% hint %}/> **INFO:** /g' "$file"
+            sed -i 's/{% endhint %}/\n/g' "$file"
+            sed -i 's/{{[^}]*}}//g' "$file"
+
+            # Convert {% embed url="https://youtu.be/ID" %} to iframe
+            awk '
+              {
+                if ($0 ~ /{% embed url="https:\/\/youtu\.be\/[^"]+" %}/) {
+                  match($0, /{% embed url="https:\/\/youtu\.be\/([^"]+)" %}/, arr)
+                  print "<iframe width=\"560\" height=\"315\" src=\"https://www.youtube.com/embed/" arr[1] "\" frameborder=\"0\" allowfullscreen></iframe>"
+                } else {
+                  print $0
+                }
+              }
+            ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+
+            # Ensure frontmatter exists
+            if ! grep -q '^---' "$file"; then
+              icon=$(basename "$file" | sed 's/\.md$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
+              echo -e "---\nicon: $icon\n---\n$(cat "$file")" > "$file"
+              echo "Added frontmatter with icon: $icon to $file"
+            fi
+
+            # Inject icon inline into first heading
             raw_icon=$(grep -m1 '^icon:' "$file" | awk -F': ' '{print $2}')
             mapped_icon=${icon_map[$raw_icon]:-$raw_icon}
 
-            if [ -n "$mapped_icon" ] && ! grep -q "fa-solid fa-$mapped_icon" "$file"; then
-              awk -v icn="$mapped_icon" '
-                BEGIN {in_yaml=0}
-                /^---/ {
-                  if(in_yaml==1){
-                    print $0
-                    print "<i class=\"fa-solid fa-" icn "\"></i>\n"
-                  }
-                  in_yaml = !in_yaml
-                  next
-                }
-                {print}
-              ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-              echo "Injected mapped icon $mapped_icon into $file"
+            if [ -n "$mapped_icon" ]; then
+              sed -i "0,/^# /s|^# |# <i class=\"fa-solid fa-$mapped_icon\"></i> |" "$file"
+              sed -i "0,/^## /s|^## |## <i class=\"fa-solid fa-$mapped_icon\"></i> |" "$file"
+              echo "Injected inline icon $mapped_icon into $file"
             fi
           done
 
-      - name: Add Font Awesome and custom styles
+          # Inject icons into SUMMARY.md sidebar entries
+          declare -A sidebar_icons=(
+            ["Introduction"]="book"
+            ["Installation"]="cog"
+            ["App"]="mobile-screen"
+            ["Announcement bar"]="bullhorn"
+            ["Top bar"]="arrow-up"
+          )
+
+          if [ -f "SUMMARY.md" ]; then
+            while IFS= read -r line; do
+              if [[ "$line" =~ \*\ \[(.*)\]\((.*\.md)\) ]]; then
+                title="${BASH_REMATCH[1]}"
+                file="${BASH_REMATCH[2]}"
+                icon="${sidebar_icons[$title]}"
+                if [ -n "$icon" ]; then
+                  echo "* [<i class=\"fa-solid fa-$icon\"></i> $title]($file)"
+                else
+                  echo "$line"
+                fi
+              else
+                echo "$line"
+              fi
+            done < SUMMARY.md > SUMMARY.tmp && mv SUMMARY.tmp SUMMARY.md
+            echo "Injected sidebar icons into SUMMARY.md"
+          fi
+
+      - name: Add Font Awesome and layout styles
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
           @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
 
-          .markdown-section h1:before,
-          .markdown-section h2:before,
-          .markdown-section h3:before {
-            font-family: "Font Awesome 6 Free";
-            font-weight: 900;
+          .markdown-section h1 i,
+          .markdown-section h2 i,
+          .markdown-section h3 i {
             margin-right: 8px;
+            font-size: 1em;
+            vertical-align: middle;
+            color: #555;
+          }
+
+          iframe {
+            display: block;
+            margin: 20px auto;
+            max-width: 100%;
           }
 
           .markdown-section blockquote {
@@ -162,3 +202,4 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_book
+          force: true
