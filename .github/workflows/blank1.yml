@@ -97,12 +97,12 @@ jobs:
             sed -i 's/{% endhint %}/\n/g' "$file"
             sed -i 's/{{[^}]*}}//g' "$file"
 
-            # Convert {% embed url="..." %} to iframe using awk
+            # Convert {% embed url="https://youtu.be/ID" %} to iframe
             awk '
               {
-                if ($0 ~ /{% embed url="[^"]+" %}/) {
-                  match($0, /{% embed url="([^"]+)" %}/, arr)
-                  print "<iframe width=\"560\" height=\"315\" src=\"" arr[1] "\" frameborder=\"0\" allowfullscreen></iframe>"
+                if ($0 ~ /{% embed url="https:\/\/youtu\.be\/[^"]+" %}/) {
+                  match($0, /{% embed url="https:\/\/youtu\.be\/([^"]+)" %}/, arr)
+                  print "<iframe width=\"560\" height=\"315\" src=\"https://www.youtube.com/embed/" arr[1] "\" frameborder=\"0\" allowfullscreen></iframe>"
                 } else {
                   print $0
                 }
@@ -175,4 +175,4 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_book
-          force_orphan: true
+          force: true
