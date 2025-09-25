@@ -116,13 +116,13 @@ jobs:
               echo "Added frontmatter with icon: $icon to $file"
             fi
 
-            # Inject icon inline into first heading
+            # Inject icon inline into first heading using safe delimiter
             raw_icon=$(grep -m1 '^icon:' "$file" | awk -F': ' '{print $2}')
             mapped_icon=${icon_map[$raw_icon]:-$raw_icon}
 
             if [ -n "$mapped_icon" ]; then
-              sed -i "0,/^# /s/^# /# <i class=\"fa-solid fa-$mapped_icon\"></i> /" "$file"
-              sed -i "0,/^## /s/^## /## <i class=\"fa-solid fa-$mapped_icon\"></i> /" "$file"
+              sed -i "0,/^# /s|^# |# <i class=\"fa-solid fa-$mapped_icon\"></i> |" "$file"
+              sed -i "0,/^## /s|^## |## <i class=\"fa-solid fa-$mapped_icon\"></i> |" "$file"
               echo "Injected inline icon $mapped_icon into $file"
             fi
           done
