@@ -1,0 +1,68 @@
+name: Inject Icons into GitHub Pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [gh-pages]
+
+jobs:
+  inject-icons:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout GitHub Pages
+        uses: actions/checkout@v3
+        with:
+          ref: gh-pages
+
+      - name: Inject Font Awesome and Icons
+        run: |
+          declare -A fa_map=(
+            [camcorder]="video"
+            [terminal]="terminal"
+            [rocket]="rocket"
+            [settings]="cog"
+            [book]="book"
+            [api]="code"
+            [code]="file-code"
+            [image]="image"
+            [video]="video"
+            [cart]="shopping-cart"
+            [search]="magnifying-glass"
+            [wishlist]="heart"
+            [filter]="sliders"
+            [bars]="bars"
+            [header]="heading"
+            [id-card-clip]="id-card"
+            [layer-minus]="layer-group"
+          )
+
+          # Add Font Awesome to all HTML files
+          find . -name "*.html" | while read -r file; do
+            if ! grep -q "font-awesome" "$file"; then
+              sed -i '/<\/head>/i <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">' "$file"
+              echo "✅ Added Font Awesome to $file"
+            fi
+          done
+
+          # Inject icons based on filename
+          for file in *.html; do
+            base=$(basename "$file" .html)
+            icon=$(grep -i "^icon:" "../$base.md" | awk -F': ' '{print $2}')
+            fa="${fa_map[$icon]}"
+            if [ -n "$fa" ]; then
+              sed -i "0,/.*<h1>/s|<h1>|<h1><i class=\"fa-solid fa-$fa\"></i> |" "$file"
+              sed -i "0,/.*<h2>/s|<h2>|<h2><i class=\"fa-solid fa-$fa\"></i> |" "$file"
+              sed -i "s|<li><a href=\"$file\">|<li><a href=\"$file\"><i class=\"fa-solid fa-$fa\"></i> |" "$file"
+              echo "🎯 Injected icon '$fa' into $file"
+            else
+              echo "⚠️ No icon match for $file"
+            fi
+          done
+
+      - name: Commit and Push Changes
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Post-deploy: Injected icons into HTML"
+          git push origin gh-pages
