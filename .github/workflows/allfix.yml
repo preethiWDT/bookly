@@ -1,0 +1,217 @@
+name: Build and Deploy GitBook - ALL fix
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '10'
+
+      - name: Install GitBook
+        run: |
+          npm install -g gitbook-cli
+          gitbook fetch 3.2.2
+
+      - name: Validate and create missing files
+        run: |
+          if [ ! -f "SUMMARY.md" ]; then
+            echo "# Summary" > SUMMARY.md
+            echo "" >> SUMMARY.md
+            for file in *.md; do
+              if [ "$file" != "README.md" ] && [ "$file" != "SUMMARY.md" ]; then
+                title=$(echo "$file" | sed 's/\.md$//' | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
+                echo "* [$title]($file)" >> SUMMARY.md
+              fi
+            done
+          fi
+
+          if [ -f "SUMMARY.md" ]; then
+            grep -o '\[.*\](.*\.md)' SUMMARY.md | sed 's/.*(\(.*\.md\)).*/\1/' | while read file; do
+              if [ ! -f "$file" ]; then
+                echo "Creating missing file: $file"
+                title=$(echo "$file" | sed 's/\.md$//' | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
+                echo "# $title" > "$file"
+                echo "" >> "$file"
+                echo "This page is under construction." >> "$file"
+              fi
+            done
+          fi
+
+      - name: Create book.json with styles and plugins
+        run: |
+          cat << 'EOF' > book.json
+          {
+            "title": "Your Documentation",
+            "plugins": [
+              "-search",
+              "fontsettings",
+              "theme-default"
+            ],
+            "pluginsConfig": {
+              "fontsettings": {
+                "theme": "white"
+              }
+            },
+            "styles": {
+              "website": "styles/website.css"
+            }
+          }
+          EOF
+
+      - name: Preprocess markdown files (icons, embeds, hints)
+        run: |
+          declare -A fa_map=(
+            [camcorder]="video"
+            [terminal]="terminal"
+            [rocket]="rocket"
+            [settings]="cog"
+            [book]="book"
+            [api]="code"
+            [code]="file-code"
+            [image]="image"
+            [video]="video"
+            [cart]="shopping-cart"
+            [search]="magnifying-glass"
+            [wishlist]="heart"
+            [filter]="sliders"
+            [bars]="bars"
+            [header]="heading"
+            [id-card-clip]="id-card"
+            [layer-minus]="layer-group"
+          )
+
+          declare -A emoji_map=(
+            [camcorder]="📹"
+            [terminal]="🖥️"
+            [rocket]="🚀"
+            [settings]="⚙️"
+            [book]="📘"
+            [api]="🔌"
+            [code]="💻"
+            [image]="🖼️"
+            [video]="🎥"
+            [cart]="🛒"
+            [search]="🔍"
+            [wishlist]="❤️"
+            [filter]="🎚️"
+            [bars]="📊"
+            [header]="🔠"
+            [id-card-clip]="🪪"
+            [layer-minus]="🧱"
+          )
+
+          find . -type f -name "*.md" | while read -r file; do
+            sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
+            sed -i 's/{% hint %}/> **INFO:** /g' "$file"
+            sed -i 's/{% endhint %}/\n/g' "$file"
+            sed -i 's/{{[^}]*}}//g' "$file"
+
+            awk '
+              {
+                if ($0 ~ /{% embed url="https:\/\/youtu\.be\/[^"]+" %}/) {
+                  match($0, /{% embed url="https:\/\/youtu\.be\/([^"]+)" %}/, arr)
+                  print "<iframe width=\"560\" height=\"315\" src=\"https://www.youtube.com/embed/" arr[1] "\" frameborder=\"0\" allowfullscreen></iframe>"
+                } else {
+                  print $0
+                }
+              }
+            ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+
+            if ! grep -q '^---' "$file"; then
+              icon=$(basename "$file" | sed 's/\.md$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
+              echo -e "---\nicon: $icon\n---\n$(cat "$file")" > "$file"
+            fi
+
+            raw_icon=$(grep -m1 '^icon:' "$file" | awk -F': ' '{print $2}')
+            fa_icon=${fa_map[$raw_icon]}
+            emoji_icon=${emoji_map[$raw_icon]}
+
+            if [ -n "$fa_icon" ]; then
+              sed -i "0,/^# /s|^# |# <i class=\"fa-solid fa-$fa_icon\"></i> |" "$file"
+              sed -i "0,/^## /s|^## |## <i class=\"fa-solid fa-$fa_icon\"></i> |" "$file"
+            elif [ -n "$emoji_icon" ]; then
+              sed -i "0,/^# /s|^# |# $emoji_icon |" "$file"
+              sed -i "0,/^## /s|^## |## $emoji_icon |" "$file"
+            fi
+          done
+
+          # Inject icons into SUMMARY.md
+          if [ -f "SUMMARY.md" ]; then
+            while read -r line; do
+              if [[ "$line" =~ \*\ \[(.*)\]\((.*\.md)\) ]]; then
+                file="${BASH_REMATCH[2]}"
+                raw_icon=$(grep -m1 '^icon:' "$file" | awk -F': ' '{print $2}')
+                fa_icon=${fa_map[$raw_icon]}
+                emoji_icon=${emoji_map[$raw_icon]}
+                if [ -n "$fa_icon" ]; then
+                  echo "* [<i class=\"fa-solid fa-$fa_icon\"></i> ${BASH_REMATCH[1]}]($file)"
+                elif [ -n "$emoji_icon" ]; then
+                  echo "* [$emoji_icon ${BASH_REMATCH[1]}]($file)"
+                else
+                  echo "$line"
+                fi
+              else
+                echo "$line"
+              fi
+            done < SUMMARY.md > SUMMARY.tmp && mv SUMMARY.tmp SUMMARY.md
+          fi
+
+      - name: Add Font Awesome and layout styles
+        run: |
+          mkdir -p styles
+          cat << 'EOF' > styles/website.css
+          @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
+
+          .markdown-section h1 i,
+          .markdown-section h2 i,
+          .markdown-section h3 i {
+            margin-right: 8px;
+            font-size: 1em;
+            vertical-align: middle;
+            color: #555;
+          }
+
+          iframe {
+            display: block;
+            margin: 20px auto;
+            max-width: 100%;
+          }
+
+          .markdown-section blockquote {
+            border-left: 4px solid #007acc;
+            background: #f8f9fa;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 4px;
+          }
+
+          .markdown-section blockquote p:first-child {
+            margin-top: 0;
+          }
+
+          .markdown-section blockquote p:last-child {
+            margin-bottom: 0;
+          }
+          EOF
+
+      - name: Build GitBook
+        run: |
+          gitbook install --verbose
+          gitbook build --verbose
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_book
+          force: true
