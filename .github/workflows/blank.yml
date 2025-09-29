@@ -22,31 +22,6 @@ jobs:
           npm install -g gitbook-cli
           gitbook fetch 3.2.2
 
-      - name: Validate and create missing files
-        run: |
-          if [ ! -f "SUMMARY.md" ]; then
-            echo "# Summary" > SUMMARY.md
-            echo "" >> SUMMARY.md
-            for file in *.md; do
-              if [ "$file" != "README.md" ] && [ "$file" != "SUMMARY.md" ]; then
-                title=$(echo "$file" | sed 's/\.md$//' | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
-                echo "* [$title]($file)" >> SUMMARY.md
-              fi
-            done
-          fi
-
-          if [ -f "SUMMARY.md" ]; then
-            grep -o '\[.*\](.*\.md)' SUMMARY.md | sed 's/.*(\(.*\.md\)).*/\1/' | while read file; do
-              if [ ! -f "$file" ]; then
-                echo "Creating missing file: $file"
-                title=$(echo "$file" | sed 's/\.md$//' | sed 's/-/ /g' | sed 's/\b\w/\U&/g')
-                echo "# $title" > "$file"
-                echo "" >> "$file"
-                echo "This page is under construction." >> "$file"
-              fi
-            done
-          fi
-
       - name: Create book.json with styles and plugins
         run: |
           cat << 'EOF' > book.json
@@ -67,92 +42,6 @@ jobs:
             }
           }
           EOF
-
-      - name: Preprocess markdown files (hints, embeds, icons, sidebar)
-        run: |
-          declare -A icon_map=(
-            [camcorder]="video"
-            [terminal]="terminal"
-            [rocket]="rocket"
-            [settings]="cog"
-            [book]="book"
-            [api]="code"
-            [code]="file-code"
-            [image]="image"
-            [video]="video"
-            [cart]="shopping-cart"
-            [search]="magnifying-glass"
-            [wishlist]="heart"
-            [filter]="sliders"
-            [bars]="bars"
-            [header]="heading"
-            [id-card-clip]="id-card-clip"
-            [layer-minus]="layer-group"
-          )
-
-          find . -type f -name "*.md" | while read -r file; do
-            # Replace hint blocks
-            sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
-            sed -i 's/{% hint %}/> **INFO:** /g' "$file"
-            sed -i 's/{% endhint %}/\n/g' "$file"
-            sed -i 's/{{[^}]*}}//g' "$file"
-
-            # Convert {% embed url="https://youtu.be/ID" %} to iframe
-            awk '
-              {
-                if ($0 ~ /{% embed url="https:\/\/youtu\.be\/[^"]+" %}/) {
-                  match($0, /{% embed url="https:\/\/youtu\.be\/([^"]+)" %}/, arr)
-                  print "<iframe width=\"560\" height=\"315\" src=\"https://www.youtube.com/embed/" arr[1] "\" frameborder=\"0\" allowfullscreen></iframe>"
-                } else {
-                  print $0
-                }
-              }
-            ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-
-            # Ensure frontmatter exists
-            if ! grep -q '^---' "$file"; then
-              icon=$(basename "$file" | sed 's/\.md$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
-              echo -e "---\nicon: $icon\n---\n$(cat "$file")" > "$file"
-              echo "Added frontmatter with icon: $icon to $file"
-            fi
-
-            # Inject icon inline into first heading
-            raw_icon=$(grep -m1 '^icon:' "$file" | awk -F': ' '{print $2}')
-            mapped_icon=${icon_map[$raw_icon]:-$raw_icon}
-
-            if [ -n "$mapped_icon" ]; then
-              sed -i "0,/^# /s|^# |# <i class=\"fa-solid fa-$mapped_icon\"></i> |" "$file"
-              sed -i "0,/^## /s|^## |## <i class=\"fa-solid fa-$mapped_icon\"></i> |" "$file"
-              echo "Injected inline icon $mapped_icon into $file"
-            fi
-          done
-
-          # Inject icons into SUMMARY.md sidebar entries
-          declare -A sidebar_icons=(
-            ["Introduction"]="book"
-            ["Installation"]="cog"
-            ["App"]="mobile-screen"
-            ["Announcement bar"]="bullhorn"
-            ["Top bar"]="arrow-up"
-          )
-
-          if [ -f "SUMMARY.md" ]; then
-            while IFS= read -r line; do
-              if [[ "$line" =~ \*\ \[(.*)\]\((.*\.md)\) ]]; then
-                title="${BASH_REMATCH[1]}"
-                file="${BASH_REMATCH[2]}"
-                icon="${sidebar_icons[$title]}"
-                if [ -n "$icon" ]; then
-                  echo "* [<i class=\"fa-solid fa-$icon\"></i> $title]($file)"
-                else
-                  echo "$line"
-                fi
-              else
-                echo "$line"
-              fi
-            done < SUMMARY.md > SUMMARY.tmp && mv SUMMARY.tmp SUMMARY.md
-            echo "Injected sidebar icons into SUMMARY.md"
-          fi
 
       - name: Add Font Awesome and layout styles
         run: |
@@ -192,14 +81,79 @@ jobs:
           }
           EOF
 
+      - name: Preprocess markdown files (frontmatter, embeds, hints)
+        run: |
+          find . -type f -name "*.md" | while read -r file; do
+            sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
+            sed -i 's/{% hint %}/> **INFO:** /g' "$file"
+            sed -i 's/{% endhint %}/\n/g' "$file"
+            sed -i 's/{{[^}]*}}//g' "$file"
+
+            awk '
+              {
+                if ($0 ~ /{% embed url="https:\/\/youtu\.be\/[^"]+" %}/) {
+                  match($0, /{% embed url="https:\/\/youtu\.be\/([^"]+)" %}/, arr)
+                  print "<iframe width=\"560\" height=\"315\" src=\"https://www.youtube.com/embed/" arr[1] "\" frameborder=\"0\" allowfullscreen></iframe>"
+                } else {
+                  print $0
+                }
+              }
+            ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+
+            if ! grep -q '^---' "$file"; then
+              icon=$(basename "$file" | sed 's/\.md$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
+              echo -e "---\nicon: $icon\n---\n$(cat "$file")" > "$file"
+            fi
+          done
+
       - name: Build GitBook
         run: |
           gitbook install --verbose
           gitbook build --verbose
+
+      - name: Inject icons into final HTML
+        run: |
+          declare -A fa_map=(
+            [camcorder]="video"
+            [terminal]="terminal"
+            [rocket]="rocket"
+            [settings]="cog"
+            [book]="book"
+            [api]="code"
+            [code]="file-code"
+            [image]="image"
+            [video]="video"
+            [cart]="shopping-cart"
+            [search]="magnifying-glass"
+            [wishlist]="heart"
+            [filter]="sliders"
+            [bars]="bars"
+            [header]="heading"
+            [id-card-clip]="id-card"
+            [layer-minus]="layer-group"
+          )
+
+          # Add Font Awesome to all HTML files
+          find _book -name "*.html" | while read -r file; do
+            sed -i '/<\/head>/i <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">' "$file"
+          done
+
+          # Inject icons into headings and sidebar
+          for md in *.md; do
+            icon=$(grep '^icon:' "$md" | awk -F': ' '{print $2}')
+            fa="${fa_map[$icon]}"
+            html="_book/$(basename "$md" .md).html"
+
+            if [ -f "$html" ] && [ -n "$fa" ]; then
+              sed -i "0,/.*<h1>/s|<h1>|<h1><i class=\"fa-solid fa-$fa\"></i> |" "$html"
+              sed -i "0,/.*<h2>/s|<h2>|<h2><i class=\"fa-solid fa-$fa\"></i> |" "$html"
+              sed -i "s|<li><a href=\"$(basename "$html")\">|<li><a href=\"$(basename "$html")\"><i class=\"fa-solid fa-$fa\"></i> |" "$html"
+            fi
+          done
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_book
-          force: true
+          force_orphan: true
