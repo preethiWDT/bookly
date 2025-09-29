@@ -1,4 +1,4 @@
-name: Build and Deploy GitBook-1
+name: Build and Deploy GitBook
 
 on:
   push:
@@ -33,6 +33,9 @@ jobs:
               "theme-default"
             ],
             "pluginsConfig": {
+              "theme-default": {
+                "scripts": ["styles/inject-icons.js"]
+              },
               "fontsettings": {
                 "theme": "white"
               }
@@ -81,28 +84,53 @@ jobs:
           }
           EOF
 
+      - name: Add icon injection script
+        run: |
+          cat << 'EOF' > styles/inject-icons.js
+          document.addEventListener("DOMContentLoaded", function () {
+            const iconMap = {
+              "camcorder": "fa-video",
+              "terminal": "fa-terminal",
+              "rocket": "fa-rocket",
+              "settings": "fa-cog",
+              "book": "fa-book",
+              "api": "fa-code",
+              "code": "fa-file-code",
+              "image": "fa-image",
+              "video": "fa-video",
+              "cart": "fa-shopping-cart",
+              "search": "fa-magnifying-glass",
+              "wishlist": "fa-heart",
+              "filter": "fa-sliders",
+              "bars": "fa-bars",
+              "header": "fa-heading",
+              "id-card-clip": "fa-id-card",
+              "layer-minus": "fa-layer-group"
+            };
+
+            document.querySelectorAll(".summary a").forEach(link => {
+              const href = link.getAttribute("href");
+              const iconKey = href.replace(".html", "").toLowerCase();
+              const faIcon = iconMap[iconKey];
+              if (faIcon) {
+                link.innerHTML = `<i class="fa-solid ${faIcon}"></i> ` + link.innerHTML;
+              }
+            });
+
+            document.querySelectorAll(".markdown-section h1, .markdown-section h2").forEach(heading => {
+              const text = heading.textContent.toLowerCase();
+              for (const key in iconMap) {
+                if (text.includes(key)) {
+                  heading.innerHTML = `<i class="fa-solid ${iconMap[key]}"></i> ` + heading.innerHTML;
+                  break;
+                }
+              }
+            });
+          });
+          EOF
+
       - name: Preprocess markdown files (frontmatter, embeds, hints)
         run: |
-          declare -A fa_map=(
-            [camcorder]="video"
-            [terminal]="terminal"
-            [rocket]="rocket"
-            [settings]="cog"
-            [book]="book"
-            [api]="code"
-            [code]="file-code"
-            [image]="image"
-            [video]="video"
-            [cart]="shopping-cart"
-            [search]="magnifying-glass"
-            [wishlist]="heart"
-            [filter]="sliders"
-            [bars]="bars"
-            [header]="heading"
-            [id-card-clip]="id-card"
-            [layer-minus]="layer-group"
-          )
-
           find . -type f -name "*.md" | while read -r file; do
             sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
             sed -i 's/{% hint %}/> **INFO:** /g' "$file"
@@ -131,52 +159,9 @@ jobs:
           gitbook install --verbose
           gitbook build --verbose
 
-      - name: Inject icons into generated HTML
-        run: |
-          declare -A fa_map=(
-            [camcorder]="video"
-            [terminal]="terminal"
-            [rocket]="rocket"
-            [settings]="cog"
-            [book]="book"
-            [api]="code"
-            [code]="file-code"
-            [image]="image"
-            [video]="video"
-            [cart]="shopping-cart"
-            [search]="magnifying-glass"
-            [wishlist]="heart"
-            [filter]="sliders"
-            [bars]="bars"
-            [header]="heading"
-            [id-card-clip]="id-card"
-            [layer-minus]="layer-group"
-          )
-
-          # Inject Font Awesome into all HTML files
-          find _book -name "*.html" | while read -r file; do
-            sed -i '/<\/head>/i <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">' "$file"
-          done
-
-          # Inject icons into headings and sidebar
-          for md in *.md; do
-            title=$(grep '^# ' "$md" | head -n1 | sed 's/^# //')
-            icon=$(grep '^icon:' "$md" | awk -F': ' '{print $2}')
-            fa="${fa_map[$icon]}"
-
-            html_file="_book/$(basename "$md" .md).html"
-            if [ -f "$html_file" ] && [ -n "$fa" ]; then
-              # Inject into first <h1>
-              sed -i "0,/.*<h1>/s|<h1>|<h1><i class=\"fa-solid fa-$fa\"></i> |" "$html_file"
-
-              # Inject into sidebar link
-              sed -i "s|<li><a href=\"$(basename "$html_file")\">|<li><a href=\"$(basename "$html_file")\"><i class=\"fa-solid fa-$fa\"></i> |" "$html_file"
-            fi
-          done
-
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_book
-          force: true
+          force_orphan: true
