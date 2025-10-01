@@ -1,27 +1,22 @@
 name: Build and Deploy GitBook
-
 on:
   push:
     branches: [main]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '10'
-
       - name: Install GitBook
         run: |
           npm install -g gitbook-cli
           gitbook fetch 3.2.2
-
       - name: Validate and create missing files
         run: |
           if [ ! -f "SUMMARY.md" ]; then
@@ -34,7 +29,6 @@ jobs:
               fi
             done
           fi
-
           if [ -f "SUMMARY.md" ]; then
             grep -o '\[.*\](.*\.md)' SUMMARY.md | sed 's/.*(\(.*\.md\)).*/\1/' | while read file; do
               if [ ! -f "$file" ]; then
@@ -46,7 +40,6 @@ jobs:
               fi
             done
           fi
-
       - name: Create book.json with styles and plugins
         run: |
           cat << 'EOF' > book.json
@@ -67,7 +60,6 @@ jobs:
             }
           }
           EOF
-
       - name: Preprocess markdown files (hints, embeds, icons)
         run: |
           declare -A icon_map=(
@@ -89,14 +81,12 @@ jobs:
             [id-card-clip]="id-card-clip"
             [layer-minus]="layer-group"
           )
-
           find . -type f -name "*.md" | while read -r file; do
             # Replace hint blocks
             sed -i 's/{% hint style="[^"]*" %}/> **TIP:** /g' "$file"
             sed -i 's/{% hint %}/> **INFO:** /g' "$file"
             sed -i 's/{% endhint %}/\n/g' "$file"
             sed -i 's/{{[^}]*}}//g' "$file"
-
             # Convert {% embed url="https://youtu.be/ID" %} to iframe
             awk '
               {
@@ -108,31 +98,26 @@ jobs:
                 }
               }
             ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-
             # Ensure frontmatter exists
             if ! grep -q '^---' "$file"; then
               icon=$(basename "$file" | sed 's/\.md$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
               echo -e "---\nicon: $icon\n---\n$(cat "$file")" > "$file"
               echo "Added frontmatter with icon: $icon to $file"
             fi
-
             # Inject icon inline into first heading using safe delimiter
             raw_icon=$(grep -m1 '^icon:' "$file" | awk -F': ' '{print $2}')
             mapped_icon=${icon_map[$raw_icon]:-$raw_icon}
-
             if [ -n "$mapped_icon" ]; then
               sed -i "0,/^# /s|^# |# <i class=\"fa-solid fa-$mapped_icon\"></i> |" "$file"
               sed -i "0,/^## /s|^## |## <i class=\"fa-solid fa-$mapped_icon\"></i> |" "$file"
               echo "Injected inline icon $mapped_icon into $file"
             fi
           done
-
       - name: Add Font Awesome and layout styles
         run: |
           mkdir -p styles
           cat << 'EOF' > styles/website.css
           @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
-
           .markdown-section h1 i,
           .markdown-section h2 i,
           .markdown-section h3 i {
@@ -141,13 +126,11 @@ jobs:
             vertical-align: middle;
             color: #555;
           }
-
           iframe {
             display: block;
             margin: 20px auto;
             max-width: 100%;
           }
-
           .markdown-section blockquote {
             border-left: 4px solid #007acc;
             background: #f8f9fa;
@@ -155,62 +138,17 @@ jobs:
             margin: 16px 0;
             border-radius: 4px;
           }
-
           .markdown-section blockquote p:first-child {
             margin-top: 0;
           }
-
           .markdown-section blockquote p:last-child {
             margin-bottom: 0;
           }
           EOF
-
       - name: Build GitBook
         run: |
           gitbook install --verbose
           gitbook build --verbose
-      - name: Inject icons into gh-pages HTML
-        run: |
-          GH_PAGES_DIR="./_book"
-          SUMMARY_MD="SUMMARY.md"
-
-          # Font Awesome mapping
-          declare -A ICON_MAP=(
-              ["Dashboard"]="fa-house"
-              ["Settings"]="fa-gear"
-              ["Users"]="fa-users"
-              ["Reports"]="fa-chart-bar"
-              ["Help"]="fa-circle-question"
-          )
-
-          # Fallback icons
-          FALLBACK_ICONS=(fa-star fa-circle fa-square fa-code fa-book fa-file fa-folder)
-          FALLBACK_INDEX=0
-
-          # Parse SUMMARY.md links
-          grep -oP '\[.*?\]\((.*?\.md)\)' "$SUMMARY_MD" | while read -r md_file; do
-              md_file=$(echo "$md_file" | tr -d '()')       # remove parentheses
-              html_file="$GH_PAGES_DIR/${md_file%.md}/index.html"  # GitBook converts foo.md -> foo/index.html
-              [[ -f "$html_file" ]] || continue
-
-              # Extract link text
-              menu_text=$(grep "\[$md_file\]" "$SUMMARY_MD" | head -1 | sed 's/.*\[\(.*\)\](.*)/\1/')
-
-              # Icon mapping or fallback
-              icon_class=${ICON_MAP["$menu_text"]}
-              if [ -z "$icon_class" ]; then
-                  icon_class=${FALLBACK_ICONS[$FALLBACK_INDEX]}
-                  FALLBACK_INDEX=$(( (FALLBACK_INDEX + 1) % ${#FALLBACK_ICONS[@]} ))
-              fi
-
-              # Inject icon into page headers (h1, h2, h3)
-              for h in 1 2 3; do
-                  sed -i "s|\(<h$h[^>]*>$menu_text\)|<i class=\"fa-solid $icon_class\"></i> \1|g" "$html_file"
-              done
-          done
-
-          echo "✅ Icons injected into all generated HTML pages!"
-
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
