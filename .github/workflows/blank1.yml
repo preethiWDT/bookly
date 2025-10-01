@@ -169,7 +169,7 @@ jobs:
         run: |
           gitbook install --verbose
           gitbook build --verbose
-            - name: Inject icons into gh-pages HTML
+      - name: Inject icons into gh-pages HTML
         run: |
           GH_PAGES_DIR="./_book"
           SUMMARY_FILE="$GH_PAGES_DIR/SUMMARY.html"
