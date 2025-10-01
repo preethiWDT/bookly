@@ -172,9 +172,9 @@ jobs:
       - name: Inject icons into gh-pages HTML
         run: |
           GH_PAGES_DIR="./_book"
-          SUMMARY_FILE="$GH_PAGES_DIR/SUMMARY.html"
+          SUMMARY_MD="SUMMARY.md"
 
-          # Define your menu text -> Font Awesome icon mapping
+          # Font Awesome mapping
           declare -A ICON_MAP=(
               ["Dashboard"]="fa-house"
               ["Settings"]="fa-gear"
@@ -183,38 +183,33 @@ jobs:
               ["Help"]="fa-circle-question"
           )
 
-          # Fallback icons for unmapped items
+          # Fallback icons
           FALLBACK_ICONS=(fa-star fa-circle fa-square fa-code fa-book fa-file fa-folder)
           FALLBACK_INDEX=0
 
-          # Extract menu items from SUMMARY.html
-          MENU_ITEMS=$(grep -oP '(?<=<a href=")[^"]+(?=")' "$SUMMARY_FILE")
+          # Parse SUMMARY.md links
+          grep -oP '\[.*?\]\((.*?\.md)\)' "$SUMMARY_MD" | while read -r md_file; do
+              md_file=$(echo "$md_file" | tr -d '()')       # remove parentheses
+              html_file="$GH_PAGES_DIR/${md_file%.md}/index.html"  # GitBook converts foo.md -> foo/index.html
+              [[ -f "$html_file" ]] || continue
 
-          for page in $MENU_ITEMS; do
-              file_path="$GH_PAGES_DIR/$page"
-              [[ -f "$file_path" ]] || continue
+              # Extract link text
+              menu_text=$(grep "\[$md_file\]" "$SUMMARY_MD" | head -1 | sed 's/.*\[\(.*\)\](.*)/\1/')
 
-              # Get sidebar text for this page
-              menu_text=$(grep -oP "(?<=href=\"$page\">)[^<]+" "$SUMMARY_FILE" | head -1)
-              [[ -z "$menu_text" ]] && continue
-
-              # Determine icon: mapped or fallback
+              # Icon mapping or fallback
               icon_class=${ICON_MAP["$menu_text"]}
               if [ -z "$icon_class" ]; then
                   icon_class=${FALLBACK_ICONS[$FALLBACK_INDEX]}
                   FALLBACK_INDEX=$(( (FALLBACK_INDEX + 1) % ${#FALLBACK_ICONS[@]} ))
               fi
 
-              # Inject into sidebar
-              sed -i "s|\(>$menu_text<\)|<i class=\"fa-solid $icon_class\"></i> \1|g" "$SUMMARY_FILE"
-
-              # Inject into page headers (h1, h2, h3)
+              # Inject icon into page headers (h1, h2, h3)
               for h in 1 2 3; do
-                  sed -i "s|\(<h$h[^>]*>$menu_text\)|<i class=\"fa-solid $icon_class\"></i> \1|g" "$file_path"
+                  sed -i "s|\(<h$h[^>]*>$menu_text\)|<i class=\"fa-solid $icon_class\"></i> \1|g" "$html_file"
               done
           done
 
-          echo "✅ Icons injected in sidebar and page headers!"
+          echo "✅ Icons injected into all generated HTML pages!"
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
