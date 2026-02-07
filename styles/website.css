@@ -1,0 +1,32 @@
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
+
+.markdown-section h1 i,
+.markdown-section h2 i,
+.markdown-section h3 i {
+  margin-right: 8px;
+  font-size: 1em;
+  vertical-align: middle;
+  color: #555;
+}
+
+iframe {
+  display: block;
+  margin: 20px auto;
+  max-width: 100%;
+}
+
+.markdown-section blockquote {
+  border-left: 4px solid #007acc;
+  background: #f8f9fa;
+  padding: 12px 16px;
+  margin: 16px 0;
+  border-radius: 4px;
+}
+
+.markdown-section blockquote p:first-child {
+  margin-top: 0;
+}
+
+.markdown-section blockquote p:last-child {
+  margin-bottom: 0;
+}
